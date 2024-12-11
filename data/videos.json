@@ -1,0 +1,52 @@
+{
+  "videos": [
+    {
+      "id": "https://www.youtube.com/watch?v=RVKuj5Nr7DI",
+      "url": "https://www.youtube.com/watch?v=RVKuj5Nr7DI",
+      "title": "Build an AI Appointment Caller with OpenAI Realtime API & Google Calendar",
+      "duration": "00:53:46",
+      "markdownFile": "build_an_ai_appointment_caller_with_openai_realtime_api___google_calendar.md",
+      "createdAt": "2024-12-11T16:59:48.841Z",
+      "thumbnailUrl": "https://i.ytimg.com/vi/RVKuj5Nr7DI/hqdefault.jpg?sqp=-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLBukeGLYwf1AJiWJmwquMfaQpm0yA",
+      "views": "1275",
+      "author": "Bart Slodyczka"
+    },
+    {
+      "id": "https://www.youtube.com/watch?v=_BxzbGh9uvk",
+      "url": "https://www.youtube.com/watch?v=_BxzbGh9uvk",
+      "title": "How To Connect ElevenLabs Conversational AI to Twilio (Full Code)",
+      "duration": "00:35:30",
+      "markdownFile": "how_to_connect_elevenlabs_conversational_ai_to_twilio__full_code_.md",
+      "createdAt": "2024-12-11T16:44:54.362Z",
+      "thumbnailUrl": "https://i.ytimg.com/vi/_BxzbGh9uvk/hqdefault.jpg?sqp=-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLD6FP6uXRdn4TJRsi5qSG45Au2CGw",
+      "views": "107",
+      "author": {
+        "id": "UC8F7X90NDmMr1mGx8897r_A",
+        "name": "Bart Slodyczka",
+        "user": "@BartSlodyczka",
+        "channel_url": "https://www.youtube.com/channel/UC8F7X90NDmMr1mGx8897r_A",
+        "external_channel_url": "https://www.youtube.com/channel/UC8F7X90NDmMr1mGx8897r_A",
+        "user_url": "http://www.youtube.com/@BartSlodyczka",
+        "thumbnails": [
+          {
+            "url": "https://yt3.ggpht.com/OsCAlSzvfFxLzHnNn57uULDFp8thSNJmX4T2Lr47tJksUNR8xkFqfhfF6NoKATd57pKc9v_x=s48-c-k-c0x00ffffff-no-rj",
+            "width": 48,
+            "height": 48
+          },
+          {
+            "url": "https://yt3.ggpht.com/OsCAlSzvfFxLzHnNn57uULDFp8thSNJmX4T2Lr47tJksUNR8xkFqfhfF6NoKATd57pKc9v_x=s88-c-k-c0x00ffffff-no-rj",
+            "width": 88,
+            "height": 88
+          },
+          {
+            "url": "https://yt3.ggpht.com/OsCAlSzvfFxLzHnNn57uULDFp8thSNJmX4T2Lr47tJksUNR8xkFqfhfF6NoKATd57pKc9v_x=s176-c-k-c0x00ffffff-no-rj",
+            "width": 176,
+            "height": 176
+          }
+        ],
+        "verified": false,
+        "subscriber_count": 3010
+      }
+    }
+  ]
+}

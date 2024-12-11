@@ -4,14 +4,37 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "verify-ffmpeg": "node scripts/verify-ffmpeg.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@deepgram/sdk": "^1.0.3",
-    "ffmpeg-static": "^4.4.0",
-    "youtube-mp3-downloader": "^0.7.8"
+    "@radix-ui/react-scroll-area": "^1.2.1",
+    "@types/node": "^20.11.19",
+    "@types/react": "^18.2.57",
+    "@types/react-dom": "^18.2.19",
+    "autoprefixer": "^10.4.17",
+    "clsx": "^2.1.1",
+    "dotenv": "^16.4.7",
+    "ffmpeg-static": "^5.2.0",
+    "next": "^14.1.0",
+    "play-dl": "^1.9.7",
+    "postcss": "^8.4.35",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwind-merge": "^2.5.5",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.3.3",
+    "ytdl-core": "^4.11.5"
+  },
+  "devDependencies": {
+    "@shadcn/ui": "^0.0.4",
+    "@types/ffmpeg-static": "^3.0.1"
   }
 }

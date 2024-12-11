@@ -1,21 +1,51 @@
-# Transcribe YouTube Videos
+# YouTube MP3 Downloader & Transcriber
 
-Get text transcripts for speech in YouTube videos. This project accompanies a blog post available at <https://developers.deepgram.com/blog/2021/11/transcribe-youtube-videos-nodejs/> and video at <https://youtu.be/LrNS_q886uQ>
+A Node.js application that downloads YouTube videos as MP3 files and generates text transcriptions using Deepgram's AI transcription service.
 
-## Setup
+## Overview
+This application allows you to:
+- Download YouTube videos as MP3 files
+- Generate text transcriptions using Deepgram
+- Track download progress
+- Automatically clean up temporary files
 
-```
-git clone https://github.com/deepgram-devs/youtube-transcripts.git
-cd youtube-transcripts
-npm install
-```
+## Prerequisites
+- Node.js (v14 or higher)
+- FFmpeg installed
+- Deepgram API key
 
-Set your `DG_KEY` environment variable or replace `process.env.DG_KEY` with your key.
+## Quick Start
+1. Clone the repository
+2. Create a `.env` file with your Deepgram API key:
+   ```
+   DG_KEY=your_deepgram_api_key_here
+   ```
+3. Install dependencies:
+   ```
+   npm install
+   ```
+4. Run the application:
+   ```
+   node index.js
+   ```
 
-## Usage
+## Configuration
+The application uses the following environment variables:
+- `DG_KEY`: Your Deepgram API key
 
-Replace the YouTube video ID on line 13 and run with:
+## Features
+- YouTube video downloading with progress tracking
+- MP3 conversion using FFmpeg
+- Speech-to-text transcription via Deepgram
+- Automatic file cleanup
+- Error handling and logging
 
-```
-node index.js
-```
+## Troubleshooting
+Common issues and solutions:
+- If downloads fail, check your YouTube video ID
+- Ensure FFmpeg is properly installed
+- Verify your Deepgram API key is valid
+- Check file permissions in the output directory
+
+## License
+[Add your license information here]
