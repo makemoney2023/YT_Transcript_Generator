@@ -146,130 +146,153 @@ async function downloadVideo(url: string, outputPath: string): Promise<void> {
 }
 
 export async function POST(request: Request) {
-  const videoPath = path.join(downloadsDir, 'temp.mp4')
-  const audioPath = path.join(downloadsDir, 'temp.mp3')
-
   try {
-    console.log('Starting video processing...')
-    const { youtubeId } = await request.json()
+    const { youtubeId, transcription } = await request.json()
 
-    if (!youtubeId) {
-      console.log('No YouTube ID provided')
+    if (!youtubeId && !transcription) {
       return NextResponse.json(
-        { error: 'YouTube video ID or URL is required' },
+        { error: 'YouTube video ID or transcription is required' },
         { status: 400 }
       )
     }
 
-    // Check if video already exists
-    if (videoExists(youtubeId)) {
-      const existingVideo = getVideo(youtubeId)
-      return NextResponse.json(existingVideo)
-    }
+    if (youtubeId) {
+      const videoPath = path.join(downloadsDir, 'temp.mp4')
+      const audioPath = path.join(downloadsDir, 'temp.mp3')
 
-    console.log('Getting video info...')
-    let videoUrl = youtubeId.includes('youtube.com') || youtubeId.includes('youtu.be')
-      ? youtubeId
-      : `https://www.youtube.com/watch?v=${youtubeId}`
+      try {
+        console.log('Starting video processing...')
 
-    let videoInfo: any
-    try {
-      videoInfo = await ytdl.getInfo(videoUrl)
-      videoInfo = {
-        videoDetails: {
-          title: videoInfo.videoDetails.title,
-          lengthSeconds: videoInfo.videoDetails.lengthSeconds,
-          author: videoInfo.videoDetails.author?.name || 'Unknown',
-          viewCount: videoInfo.videoDetails.viewCount,
-          thumbnails: videoInfo.videoDetails.thumbnails
+        // Check if video already exists
+        if (videoExists(youtubeId)) {
+          const existingVideo = getVideo(youtubeId)
+          return NextResponse.json(existingVideo)
         }
-      }
-    } catch (error) {
-      console.log('ytdl.getInfo failed, trying play-dl...', error)
-      const info = await video_info(videoUrl)
-      videoInfo = {
-        videoDetails: {
-          title: info.video_details.title || 'Untitled Video',
-          lengthSeconds: info.video_details.durationInSec.toString(),
-          author: info.video_details.channel?.name || 'Unknown',
-          viewCount: info.video_details.views?.toString(),
-          thumbnails: info.video_details.thumbnails
+
+        console.log('Getting video info...')
+        let videoUrl = youtubeId.includes('youtube.com') || youtubeId.includes('youtu.be')
+          ? youtubeId
+          : `https://www.youtube.com/watch?v=${youtubeId}`
+
+        let videoInfo: any
+        try {
+          videoInfo = await ytdl.getInfo(videoUrl)
+          videoInfo = {
+            videoDetails: {
+              title: videoInfo.videoDetails.title,
+              lengthSeconds: videoInfo.videoDetails.lengthSeconds,
+              author: videoInfo.videoDetails.author?.name || 'Unknown',
+              viewCount: videoInfo.videoDetails.viewCount,
+              thumbnails: videoInfo.videoDetails.thumbnails
+            }
+          }
+        } catch (error) {
+          console.log('ytdl.getInfo failed, trying play-dl...', error)
+          const info = await video_info(videoUrl)
+          videoInfo = {
+            videoDetails: {
+              title: info.video_details.title || 'Untitled Video',
+              lengthSeconds: info.video_details.durationInSec.toString(),
+              author: info.video_details.channel?.name || 'Unknown',
+              viewCount: info.video_details.views?.toString(),
+              thumbnails: info.video_details.thumbnails
+            }
+          }
         }
+
+        const videoTitle = videoInfo.videoDetails.title
+        const markdownFileName = `${videoTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`
+        const markdownPath = path.join(downloadsDir, markdownFileName)
+
+        console.log('Downloading video...')
+        await downloadVideo(videoUrl, videoPath)
+
+        console.log('Converting to MP3...')
+        await convertToMp3(videoPath, audioPath)
+
+        console.log('Reading audio file...')
+        const audioFile = {
+          buffer: fs.readFileSync(audioPath),
+          mimetype: 'audio/mp3',
+        }
+
+        console.log('Sending to Deepgram...')
+        const response = await deepgram.transcription.preRecorded(
+          { buffer: audioFile.buffer, mimetype: audioFile.mimetype },
+          {
+            punctuate: true,
+            utterances: true,
+            version: "latest"
+          }
+        )
+
+        const transcript = response.results?.channels[0]?.alternatives[0]?.transcript || ''
+
+        console.log('Creating markdown content...')
+        const markdownContent = `# ${videoTitle}\n\n## Metadata\n- Duration: ${
+          new Date(parseInt(videoInfo.videoDetails.lengthSeconds) * 1000).toISOString().substr(11, 8)
+        }\n- Author: ${videoInfo.videoDetails.author}\n- Views: ${
+          parseInt(videoInfo.videoDetails.viewCount || '0').toLocaleString()
+        }\n\n## Transcript\n\n${transcript}`
+        
+        console.log('Saving markdown file...')
+        fs.writeFileSync(markdownPath, markdownContent)
+
+        console.log('Cleaning up temporary files...')
+        if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath)
+        if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath)
+
+        // Create video record
+        const videoRecord: VideoRecord = {
+          id: youtubeId,
+          url: videoUrl,
+          title: videoTitle,
+          duration: new Date(parseInt(videoInfo.videoDetails.lengthSeconds) * 1000).toISOString().substr(11, 8),
+          markdownFile: markdownFileName,
+          createdAt: new Date().toISOString(),
+          thumbnailUrl: videoInfo.videoDetails.thumbnails?.[0]?.url || null,
+          views: videoInfo.videoDetails.viewCount?.toString() || '0',
+          author: videoInfo.videoDetails.author
+        }
+
+        // Save to storage
+        addVideo(videoRecord)
+
+        console.log('Processing complete!')
+        return NextResponse.json(videoRecord)
+      } catch (error) {
+        console.error('Error in POST handler:', error)
+        // Clean up any leftover files
+        if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath)
+        if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath)
+        
+        const errorMessage = error instanceof Error 
+          ? error.message 
+          : 'An unknown error occurred'
+        
+        return NextResponse.json(
+          { error: errorMessage },
+          { status: 500 }
+        )
       }
+    } else if (transcription) {
+      console.log('Processing transcription...')
+
+      const markdownFileName = `transcription_${Date.now()}.md`
+      const markdownPath = path.join(process.cwd(), 'downloads', markdownFileName)
+
+      const markdownContent = `# Transcription Result\n\n${transcription}`
+
+      fs.writeFileSync(markdownPath, markdownContent)
+
+      console.log('Transcription saved as', markdownFileName)
+
+      return NextResponse.json({ message: 'Transcription processed successfully' })
     }
-
-    const videoTitle = videoInfo.videoDetails.title
-    const markdownFileName = `${videoTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`
-    const markdownPath = path.join(downloadsDir, markdownFileName)
-
-    console.log('Downloading video...')
-    await downloadVideo(videoUrl, videoPath)
-
-    console.log('Converting to MP3...')
-    await convertToMp3(videoPath, audioPath)
-
-    console.log('Reading audio file...')
-    const audioFile = {
-      buffer: fs.readFileSync(audioPath),
-      mimetype: 'audio/mp3',
-    }
-
-    console.log('Sending to Deepgram...')
-    const response = await deepgram.transcription.preRecorded(
-      { buffer: audioFile.buffer, mimetype: audioFile.mimetype },
-      {
-        punctuate: true,
-        utterances: true,
-        version: "latest"
-      }
-    )
-
-    const transcript = response.results?.channels[0]?.alternatives[0]?.transcript || ''
-
-    console.log('Creating markdown content...')
-    const markdownContent = `# ${videoTitle}\n\n## Metadata\n- Duration: ${
-      new Date(parseInt(videoInfo.videoDetails.lengthSeconds) * 1000).toISOString().substr(11, 8)
-    }\n- Author: ${videoInfo.videoDetails.author}\n- Views: ${
-      parseInt(videoInfo.videoDetails.viewCount || '0').toLocaleString()
-    }\n\n## Transcript\n\n${transcript}`
-    
-    console.log('Saving markdown file...')
-    fs.writeFileSync(markdownPath, markdownContent)
-
-    console.log('Cleaning up temporary files...')
-    if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath)
-    if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath)
-
-    // Create video record
-    const videoRecord: VideoRecord = {
-      id: youtubeId,
-      url: videoUrl,
-      title: videoTitle,
-      duration: new Date(parseInt(videoInfo.videoDetails.lengthSeconds) * 1000).toISOString().substr(11, 8),
-      markdownFile: markdownFileName,
-      createdAt: new Date().toISOString(),
-      thumbnailUrl: videoInfo.videoDetails.thumbnails?.[0]?.url || null,
-      views: videoInfo.videoDetails.viewCount?.toString() || '0',
-      author: videoInfo.videoDetails.author
-    }
-
-    // Save to storage
-    addVideo(videoRecord)
-
-    console.log('Processing complete!')
-    return NextResponse.json(videoRecord)
   } catch (error) {
     console.error('Error in POST handler:', error)
-    // Clean up any leftover files
-    if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath)
-    if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath)
-    
-    const errorMessage = error instanceof Error 
-      ? error.message 
-      : 'An unknown error occurred'
-    
     return NextResponse.json(
-      { error: errorMessage },
+      { error: error instanceof Error ? error.message : 'An error occurred' },
       { status: 500 }
     )
   }

@@ -4,299 +4,356 @@
 
 'use client'
 
-import { useState, useRef } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import type { Deepgram } from '@deepgram/sdk'
-import type MicrophoneStream from 'microphone-stream'
+import MicrophoneStream from 'microphone-stream'
+import { cn } from '@/lib/utils'
 
-/**
- * Response structure from Deepgram WebSocket API
- */
+interface AudioChunk {
+  chunkNumber: number;
+  data: Float32Array;
+}
+
 interface DeepgramResponse {
-  type: 'Results' | 'Error' | 'Metadata'
-  channel?: {
-    alternatives?: Array<{
-      transcript?: string
-    }>
-  }
-  error?: unknown
-  message?: string
-  description?: string
+  type: 'Results' | 'Error';
+  channel: {
+    alternatives: Array<{
+      transcript: string;
+      confidence: number;
+    }>;
+  };
+  duration?: number;
+  start?: number;
+  is_final?: boolean;
+  error?: string;
+  message?: string;
 }
 
-/**
- * Props for the TranscriptionRecorder component
- */
 interface TranscriptionRecorderProps {
-  /** Callback function called when recording stops with the final transcript */
-  onTranscriptionComplete: (transcript: string) => void
+  onTranscriptionComplete?: (transcript: string) => void;
 }
 
-/**
- * A component that handles real-time audio transcription using Deepgram's API.
- * Features:
- * - Real-time audio recording using the browser's MediaStream API
- * - WebSocket connection to Deepgram for live transcription
- * - Support for both Buffer and Float32Array audio formats
- * - Error handling and connection state management
- * 
- * @param props - Component props
- * @returns A React component for audio recording and transcription
- */
-export function TranscriptionRecorder({ onTranscriptionComplete }: TranscriptionRecorderProps) {
-  // State for recording status and transcript
-  const [isRecording, setIsRecording] = useState(false)
-  const [transcript, setTranscript] = useState('')
-  
-  // Refs for maintaining WebSocket and MicrophoneStream instances
-  const micStreamRef = useRef<MicrophoneStream | null>(null)
-  const dgSocketRef = useRef<WebSocket | null>(null)
+interface MicrophoneStreamOptions {
+  objectMode?: boolean;
+  bufferSize?: number;
+}
 
-  /**
-   * Starts the recording process:
-   * 1. Gets microphone permissions
-   * 2. Sets up audio stream
-   * 3. Connects to Deepgram WebSocket
-   * 4. Begins sending audio data
-   */
+export default function TranscriptionRecorder({ onTranscriptionComplete }: TranscriptionRecorderProps) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const [error, setError] = useState<Error | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const micStreamRef = useRef<MicrophoneStream | null>(null);
+
+  const handleError = (error: Error) => {
+    console.error('Transcription error:', error);
+    setError(error);
+    stopRecording();
+  };
+
+  const processAudioData = (chunk: Buffer | Float32Array | AudioBuffer | any): ArrayBuffer => {
+    let float32Array: Float32Array;
+    
+    // Handle different input types
+    if (Buffer.isBuffer(chunk)) {
+      // Handle Buffer input
+      const view = new DataView(chunk.buffer);
+      float32Array = new Float32Array(chunk.length / 4);
+      for (let i = 0; i < float32Array.length; i++) {
+        float32Array[i] = view.getFloat32(i * 4, true);
+      }
+    } else if (chunk instanceof Float32Array) {
+      // Direct Float32Array input
+      float32Array = chunk;
+    } else if (chunk instanceof AudioBuffer) {
+      // Handle AudioBuffer input - get the first channel data
+      float32Array = chunk.getChannelData(0);
+    } else if (Array.isArray(chunk)) {
+      // Handle array input
+      float32Array = new Float32Array(chunk);
+    } else if (chunk.getChannelData) {
+      // Alternative way to handle AudioBuffer-like objects
+      try {
+        float32Array = chunk.getChannelData(0);
+      } catch (e) {
+        console.warn('Failed to get channel data:', e);
+        float32Array = new Float32Array(0);
+      }
+    } else {
+      console.warn('Unexpected chunk type:', typeof chunk, chunk);
+      return new ArrayBuffer(0);
+    }
+
+    // Ensure we have valid data
+    if (!float32Array || float32Array.length === 0) {
+      console.warn('No valid audio data to process');
+      return new ArrayBuffer(0);
+    }
+
+    // Check audio levels without using reduce
+    let sum = 0;
+    let maxAbs = 0;
+    for (let i = 0; i < float32Array.length; i++) {
+      const absValue = Math.abs(float32Array[i]);
+      sum += absValue;
+      if (absValue > maxAbs) maxAbs = absValue;
+    }
+    const average = sum / float32Array.length;
+
+    // Log audio levels for debugging
+    console.log('Audio levels:', {
+      average,
+      maxAmplitude: maxAbs,
+      samplesCount: float32Array.length
+    });
+
+    // Convert Float32Array to Int16Array for Deepgram
+    const int16Array = new Int16Array(float32Array.length);
+    
+    // Apply normalization and convert to Int16
+    const normalizeScale = maxAbs > 0 ? 0.7 / maxAbs : 1; // Use 0.7 to prevent clipping
+    for (let i = 0; i < float32Array.length; i++) {
+      // Scale to Int16 range with headroom
+      int16Array[i] = Math.round(float32Array[i] * normalizeScale * 32767);
+    }
+
+    // Count non-zero samples and find range
+    let nonZeroCount = 0;
+    let minSample = 0;
+    let maxSample = 0;
+    for (let i = 0; i < int16Array.length; i++) {
+      if (int16Array[i] !== 0) nonZeroCount++;
+      if (int16Array[i] < minSample) minSample = int16Array[i];
+      if (int16Array[i] > maxSample) maxSample = int16Array[i];
+    }
+
+    // Only send if we have actual audio data
+    if (nonZeroCount === 0 || maxAbs < 0.0001) {
+      console.warn('Skipping silent audio chunk');
+      return new ArrayBuffer(0);
+    }
+
+    console.log(`Processed audio chunk:
+      - Size: ${int16Array.buffer.byteLength} bytes
+      - Samples: ${int16Array.length}
+      - Non-zero samples: ${nonZeroCount}
+      - Sample range: ${minSample} to ${maxSample}
+      - Original max amplitude: ${maxAbs}
+      - Normalization scale: ${normalizeScale}`
+    );
+
+    return int16Array.buffer;
+  };
+
+  const stopRecording = async () => {
+    try {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+
+      if (micStreamRef.current) {
+        micStreamRef.current.stop();
+        micStreamRef.current = null;
+      }
+
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+
+      setIsRecording(false);
+      if (onTranscriptionComplete) {
+        onTranscriptionComplete(transcript);
+      }
+    } catch (error) {
+      console.error('Error stopping recording:', error);
+    }
+  };
+
   const startRecording = async () => {
     try {
-      // Get microphone permission and start stream
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+      setIsRecording(true);
+      setTranscript('');
+      setInterimTranscript('');
+      setError(null);
+
+      // Create AudioContext first
+      const audioContext = new AudioContext({
+        sampleRate: 16000,
+        latencyHint: 'interactive'
+      });
+
+      // Request microphone access with specific constraints
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
           sampleRate: 16000,
-          sampleSize: 16
-        } 
-      })
-      
-      console.log('Microphone stream started:', {
-        tracks: mediaStream.getAudioTracks().map(track => ({
-          label: track.label,
-          settings: track.getSettings()
-        }))
-      });
-      
-      // Dynamically import MicrophoneStream to avoid SSR issues
-      const { default: MicStream } = await import('microphone-stream')
-      micStreamRef.current = new MicStream({
-        objectMode: true,
-        bufferSize: 4096
-      })
-
-      console.log('MicrophoneStream created with settings:', {
-        objectMode: true,
-        bufferSize: 4096
-      });
-
-      micStreamRef.current.setStream(mediaStream)
-
-      // Initialize Deepgram socket
-      const response = await fetch('/api/get-deepgram-token')
-      const { token, projectId } = await response.json()
-      
-      console.log('Got Deepgram token:', token)
-      
-      // Create WebSocket connection with all parameters in URL
-      const wsUrl = `wss://api.deepgram.com/v1/listen?` +
-        `encoding=linear16&` +
-        `sample_rate=16000&` +
-        `language=en-US&` +
-        `model=nova-2&` +
-        `punctuate=true&` +
-        `interim_results=true`;
-      
-      console.log('Connecting to Deepgram WebSocket:', wsUrl);
-      
-      const socket = new WebSocket(wsUrl, ['token', token]);
-
-      // Add error logging for connection issues
-      socket.addEventListener('error', (error) => {
-        console.error('WebSocket error:', error);
-        console.log('WebSocket state at error:', {
-          readyState: socket.readyState,
-          bufferedAmount: socket.bufferedAmount,
-          protocol: socket.protocol,
-          url: socket.url
-        });
-      });
-
-      dgSocketRef.current = socket;
-
-      let isFirstChunk = true;
-      let chunkCount = 0;
-
-      socket.addEventListener('open', () => {
-        console.log('WebSocket connection opened');
-        
-        // Start sending audio data
-        if (micStreamRef.current) {
-          micStreamRef.current.on('data', (chunk: Buffer | Float32Array) => {
-            if (socket.readyState === WebSocket.OPEN) {
-              try {
-                // Log only the first chunk and every 100th chunk to avoid console spam
-                if (isFirstChunk || chunkCount % 100 === 0) {
-                  console.log('Audio chunk received:', {
-                    chunkNumber: chunkCount,
-                    chunkType: chunk instanceof Buffer ? 'Buffer' : 'Float32Array',
-                    chunkLength: chunk.length,
-                    bufferAvailable: chunk instanceof Buffer ? chunk.buffer ? 'yes' : 'no' : 'n/a',
-                    sampleData: Array.from(chunk).slice(0, 5)
-                  });
-                  isFirstChunk = false;
-                }
-                chunkCount++;
-
-                // Convert the chunk to Int16Array
-                let audioData: Int16Array;
-                
-                if (chunk instanceof Buffer) {
-                  audioData = new Int16Array(chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength));
-                } else if (chunk instanceof Float32Array) {
-                  audioData = new Int16Array(chunk.length);
-                  for (let i = 0; i < chunk.length; i++) {
-                    const s = Math.max(-1, Math.min(1, chunk[i]));
-                    audioData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-                  }
-                } else {
-                  console.error('Unexpected chunk type:', typeof chunk);
-                  return;
-                }
-
-                if (isFirstChunk || chunkCount % 100 === 0) {
-                  console.log('Sending audio data:', {
-                    chunkNumber: chunkCount,
-                    dataType: 'Int16Array',
-                    length: audioData.length,
-                    sampleValues: Array.from(audioData.slice(0, 5))
-                  });
-                }
-
-                socket.send(audioData.buffer);
-              } catch (error) {
-                console.error('Error processing audio chunk:', error);
-              }
-            }
-          });
-
-          setIsRecording(true);
-        } else {
-          console.error('MicrophoneStream is not initialized');
-          socket.close();
+          sampleSize: 16,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
         }
       });
+      streamRef.current = stream;
 
-      socket.addEventListener('message', (message) => {
-        try {
-          // Parse and type-check the incoming message
-          const data = JSON.parse(message.data) as DeepgramResponse;
-          console.log('Received message:', data);
-          
-          if (data.type === 'Results') {
-            // Extract transcript from the results
-            const transcript = data.channel?.alternatives?.[0]?.transcript || '';
-            if (transcript) {
-              console.log('New transcript segment:', transcript);
-              // Append new transcript segment with a space
-              setTranscript((prev) => prev + ' ' + transcript);
+      // Create and configure microphone stream
+      const micStream = new MicrophoneStream({
+        objectMode: true,
+        bufferSize: 4096,
+        context: audioContext
+      });
+      micStream.setStream(stream);
+      micStreamRef.current = micStream;
+
+      const apiKey = process.env.NEXT_PUBLIC_DEEPGRAM_API_KEY;
+      if (!apiKey) {
+        throw new Error('Deepgram API key is not configured');
+      }
+
+      // Create WebSocket URL with parameters
+      const wsUrl = new URL('wss://api.deepgram.com/v1/listen');
+      wsUrl.searchParams.append('encoding', 'linear16');
+      wsUrl.searchParams.append('sample_rate', '16000');
+      wsUrl.searchParams.append('channels', '1');
+      wsUrl.searchParams.append('language', 'en-US');
+      wsUrl.searchParams.append('model', 'nova-2');
+      wsUrl.searchParams.append('punctuate', 'true');
+      wsUrl.searchParams.append('interim_results', 'true');
+      wsUrl.searchParams.append('version', 'latest');
+
+      // Create WebSocket connection
+      const ws = new WebSocket(wsUrl.toString(), ['token', apiKey]);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        console.log('WebSocket connection opened');
+        wsRef.current = ws;
+
+        // Process audio data
+        micStream.on('data', (chunk: any) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            try {
+              const buffer = processAudioData(chunk);
+              if (buffer.byteLength > 0) {
+                ws.send(buffer);
+              }
+            } catch (error) {
+              console.error('Error processing audio chunk:', error);
             }
-          } else if (data.type === 'Error') {
-            // Log any errors from Deepgram
-            console.error('Deepgram error:', {
-              error: data.error,
-              message: data.message,
-              description: data.description
-            });
-          } else if (data.type === 'Metadata') {
-            // Log metadata messages (connection info, etc.)
-            console.log('Deepgram metadata:', data);
+          }
+        });
+      };
+
+      ws.onmessage = (message) => {
+        try {
+          const data = JSON.parse(message.data) as DeepgramResponse;
+          console.log('Raw Deepgram response:', JSON.stringify(data, null, 2));
+
+          if (data.type === 'Error') {
+            handleError(new Error(data.message || 'Unknown Deepgram error'));
+            return;
+          }
+
+          // Check if we have transcription data
+          if (data.type === 'Results') {
+            // Access the transcript from the correct path
+            const transcript = data.channel?.alternatives?.[0]?.transcript;
+            
+            if (transcript) {
+              console.log(`Processing ${data.is_final ? 'final' : 'interim'} transcript:`, transcript);
+              
+              if (data.is_final) {
+                setTranscript((prev) => {
+                  const updatedTranscript = prev ? `${prev} ${transcript}` : transcript;
+                  console.log('Updated final transcript:', updatedTranscript);
+                  return updatedTranscript.trim();
+                });
+                setInterimTranscript('');
+              } else {
+                console.log('Setting interim transcript:', transcript);
+                setInterimTranscript(transcript);
+              }
+            } else {
+              // Log more details about why we didn't get a transcript
+              console.log('No transcript found. Response structure:', {
+                hasChannel: Boolean(data.channel),
+                hasAlternatives: Boolean(data.channel?.alternatives),
+                alternativesLength: data.channel?.alternatives?.length,
+                firstAlternative: data.channel?.alternatives?.[0]
+              });
+            }
           }
         } catch (error) {
-          console.error('Error parsing message:', error);
-          console.log('Raw message data:', message.data);
+          console.error('Error parsing WebSocket message:', error);
+          handleError(error instanceof Error ? error : new Error('Failed to parse transcription response'));
         }
-      });
+      };
 
-      // Handle WebSocket errors
-      socket.addEventListener('error', (error) => {
-        console.error('WebSocket error:', error);
-        console.log('WebSocket state:', {
-          readyState: socket.readyState,
-          bufferedAmount: socket.bufferedAmount,
-          protocol: socket.protocol,
-          url: socket.url
-        });
-        console.log('Project ID:', projectId);
-        
-        // Clean up on error
-        if (micStreamRef.current) {
-          micStreamRef.current.stop();
+      ws.onerror = (error) => {
+        handleError(new Error('WebSocket error occurred'));
+      };
+
+      ws.onclose = (event) => {
+        console.log('WebSocket closed:', event);
+        if (isRecording) {
+          stopRecording();
         }
-        setIsRecording(false);
-      });
+      };
 
-      // Handle WebSocket closure
-      socket.addEventListener('close', (event) => {
-        console.log('WebSocket closed:', {
-          code: event.code,
-          reason: event.reason,
-          wasClean: event.wasClean
-        });
-        
-        // Clean up resources
-        if (micStreamRef.current) {
-          micStreamRef.current.stop();
-        }
-        setIsRecording(false);
-      });
-    } catch (err) {
-      console.error('Error starting recording:', err)
+    } catch (error) {
+      handleError(error instanceof Error ? error : new Error('Failed to start recording'));
     }
-  }
-
-  /**
-   * Stops the recording process:
-   * 1. Stops and cleans up the microphone stream
-   * 2. Closes the WebSocket connection
-   * 3. Calls the completion callback with the final transcript
-   */
-  const stopRecording = async () => {
-    if (micStreamRef.current) {
-      micStreamRef.current.stop()
-      micStreamRef.current = null
-    }
-
-    if (dgSocketRef.current) {
-      dgSocketRef.current.close()
-      dgSocketRef.current = null
-    }
-
-    setIsRecording(false)
-    onTranscriptionComplete(transcript)
-  }
+  };
 
   return (
-    <div className="p-4 border rounded-lg">
-      <div className="flex flex-col gap-4">
-        <div className="flex justify-between items-center">
-          <button
-            onClick={isRecording ? stopRecording : startRecording}
-            className={`px-4 py-2 rounded-lg ${
-              isRecording 
-                ? 'bg-red-500 hover:bg-red-600' 
-                : 'bg-blue-500 hover:bg-blue-600'
-            } text-white`}
-          >
-            {isRecording ? 'Stop Recording' : 'Start Recording'}
-          </button>
-          <div className={`w-3 h-3 rounded-full ${
-            isRecording ? 'bg-red-500 animate-pulse' : 'bg-gray-300'
-          }`} />
+    <div className="space-y-4 p-4">
+      <div className="flex items-center justify-between">
+        <button
+          onClick={isRecording ? stopRecording : startRecording}
+          className={cn(
+            "px-4 py-2 rounded-md font-medium transition-colors",
+            isRecording
+              ? "bg-red-500 hover:bg-red-600 text-white"
+              : "bg-blue-500 hover:bg-blue-600 text-white"
+          )}
+        >
+          {isRecording ? "Stop Recording" : "Start Recording"}
+        </button>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
+          {error.message}
         </div>
-        
-        <div className="min-h-[100px] p-4 bg-gray-50 rounded-lg">
-          {transcript || 'Transcript will appear here...'}
+      )}
+
+      <div className="space-y-4">
+        {/* Recording status */}
+        {isRecording && (
+          <div className="text-sm text-gray-500">
+            Recording in progress...
+          </div>
+        )}
+
+        {/* Interim results - always show when recording */}
+        <div className="bg-gray-50 p-4 rounded-md border border-gray-200 min-h-[60px]">
+          <h3 className="text-sm font-medium text-gray-500 mb-2">Real-time Transcription</h3>
+          <p className="text-gray-700 italic">
+            {interimTranscript || (isRecording ? "Listening..." : "Start recording to see real-time transcription")}
+          </p>
+        </div>
+
+        {/* Final transcript */}
+        <div className="bg-white p-4 rounded-md border border-gray-200 min-h-[100px]">
+          <h3 className="text-sm font-medium text-gray-500 mb-2">Final Transcript</h3>
+          <p className="text-gray-900 whitespace-pre-wrap">
+            {transcript || "No transcription yet. Start recording to begin."}
+          </p>
         </div>
       </div>
     </div>
-  )
+  );
 } 

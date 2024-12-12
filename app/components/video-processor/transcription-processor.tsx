@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { TranscriptionRecorder } from '../audio-transcription/transcription-recorder'
+import TranscriptionRecorder from '../audio-transcription/transcription-recorder'
 
 export function TranscriptionProcessor() {
   const [isProcessing, setIsProcessing] = useState(false)
@@ -15,19 +15,20 @@ export function TranscriptionProcessor() {
     try {
       const response = await fetch('/api/process-video', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcription: transcript,
-        })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ transcription: transcript }),
       })
 
       if (!response.ok) {
-        throw new Error('Failed to process transcription')
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to process transcription')
       }
 
       const result = await response.json()
-      // Handle successful processing
-      
+      // Handle successful response
+      console.log('Transcription processed:', result)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred')
     } finally {
