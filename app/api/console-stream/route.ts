@@ -2,42 +2,62 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   const encoder = new TextEncoder();
+  let isStreamClosed = false;
+
   const customReadable = new ReadableStream({
     start(controller) {
-      // Intercept console.log and other console methods
+      // Store original console methods
       const originalLog = console.log;
       const originalError = console.error;
       const originalInfo = console.info;
 
+      // Helper function to safely enqueue messages
+      const safeEnqueue = (message: any) => {
+        if (!isStreamClosed) {
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(message)}\n\n`));
+          } catch (error) {
+            // If we hit an error enqueueing, close the stream
+            try {
+              controller.close();
+            } catch (_) {
+              // Ignore close errors
+            }
+            isStreamClosed = true;
+          }
+        }
+      };
+
+      // Override console methods
       console.log = (...args) => {
         originalLog.apply(console, args);
-        const message = {
+        safeEnqueue({
           timestamp: new Date().toISOString(),
           message: args.join(' '),
           type: 'info',
-        };
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(message)}\n\n`));
+        });
       };
 
       console.error = (...args) => {
         originalError.apply(console, args);
-        const message = {
+        safeEnqueue({
           timestamp: new Date().toISOString(),
           message: args.join(' '),
           type: 'error',
-        };
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(message)}\n\n`));
+        });
       };
 
       console.info = (...args) => {
         originalInfo.apply(console, args);
-        const message = {
+        safeEnqueue({
           timestamp: new Date().toISOString(),
           message: args.join(' '),
           type: 'success',
-        };
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(message)}\n\n`));
+        });
       };
+    },
+    cancel() {
+      isStreamClosed = true;
     },
   });
 
@@ -45,7 +65,7 @@ export async function GET() {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
+      'Connection': 'keep-alive',
     },
   });
 } 

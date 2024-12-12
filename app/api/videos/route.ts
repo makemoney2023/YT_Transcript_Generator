@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getAllVideos } from '../../../utils/video-storage'
+import { getAllVideos } from '@/utils/video-storage'
 
 export async function GET() {
   try {

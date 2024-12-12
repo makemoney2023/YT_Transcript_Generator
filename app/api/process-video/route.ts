@@ -6,7 +6,7 @@ import { exec } from 'child_process'
 import ffmpeg from 'ffmpeg-static'
 import { promisify } from 'util'
 import { stream as playDlStream, video_info, YouTubeVideo, setToken } from 'play-dl'
-import * as ytdl from 'ytdl-core'
+import ytdl from 'ytdl-core'
 import { addVideo, videoExists, getVideo } from '../../../utils/video-storage'
 import type { VideoRecord } from '../../../types/video-record'
 
@@ -73,7 +73,7 @@ async function convertToMp3(inputPath: string, outputPath: string): Promise<void
     }
   } catch (error) {
     console.error('FFmpeg error:', error)
-    throw new Error(`FFmpeg conversion failed: ${error.message}`)
+    throw new Error(`FFmpeg conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 }
 
@@ -106,7 +106,7 @@ async function downloadWithPlayDl(url: string, outputPath: string): Promise<void
       writeStream.on('error', reject)
     })
   } catch (error) {
-    throw new Error(`play-dl download failed: ${error.message}`)
+    throw new Error(`play-dl download failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 }
 
@@ -119,8 +119,12 @@ async function downloadVideo(url: string, outputPath: string): Promise<void> {
     await downloadWithYtdl(url, outputPath)
     return
   } catch (error) {
-    console.log('ytdl-core failed:', error.message)
-    errors.push(error)
+    console.log('ytdl-core failed:', error instanceof Error ? error.message : 'Unknown error')
+    if (error instanceof Error) {
+      errors.push(error)
+    } else {
+      errors.push(new Error('Unknown ytdl-core error'))
+    }
   }
 
   // Try play-dl as fallback
@@ -129,8 +133,12 @@ async function downloadVideo(url: string, outputPath: string): Promise<void> {
     await downloadWithPlayDl(url, outputPath)
     return
   } catch (error) {
-    console.log('play-dl failed:', error.message)
-    errors.push(error)
+    console.log('play-dl failed:', error instanceof Error ? error.message : 'Unknown error')
+    if (error instanceof Error) {
+      errors.push(error)
+    } else {
+      errors.push(new Error('Unknown play-dl error'))
+    }
   }
 
   // If all methods fail, throw a comprehensive error
@@ -256,8 +264,12 @@ export async function POST(request: Request) {
     if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath)
     if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath)
     
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : 'An unknown error occurred'
+    
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to process video' },
+      { error: errorMessage },
       { status: 500 }
     )
   }

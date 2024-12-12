@@ -1,6 +1,39 @@
 {
   "videos": [
     {
+      "id": "https://www.youtube.com/watch?v=esumhu_gBDY&t=241s",
+      "url": "https://www.youtube.com/watch?v=esumhu_gBDY&t=241s",
+      "title": "Sales Training // Get a Yes Every Time - LIVE Phone Call with Customer // Andy Elliott",
+      "duration": "00:48:50",
+      "markdownFile": "sales_training____get_a_yes_every_time___live_phone_call_with_customer____andy_elliott.md",
+      "createdAt": "2024-12-12T15:14:39.476Z",
+      "thumbnailUrl": "https://i.ytimg.com/vi/esumhu_gBDY/hqdefault.jpg?sqp=-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLCDH_lCb0YqDXTbv1Y0kOqwg8bygw",
+      "views": "61126",
+      "author": "Andy Elliott"
+    },
+    {
+      "id": "https://youtu.be/oRMG_HpOAN4?si=QimZ10Dn_R3F09-b",
+      "url": "https://youtu.be/oRMG_HpOAN4?si=QimZ10Dn_R3F09-b",
+      "title": "13 Years of No BS Business Advice in 79 Mins",
+      "duration": "01:19:43",
+      "markdownFile": "13_years_of_no_bs_business_advice_in_79_mins.md",
+      "createdAt": "2024-12-12T13:12:21.819Z",
+      "thumbnailUrl": "https://i.ytimg.com/vi/oRMG_HpOAN4/hqdefault.jpg?sqp=-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLA0TZVMwJkrF7857eP2ierv-a4Ztg",
+      "views": "1658747",
+      "author": "Alex Hormozi"
+    },
+    {
+      "id": "https://youtu.be/esumhu_gBDY?si=Z9kzTbCh_rrYSi9K",
+      "url": "https://youtu.be/esumhu_gBDY?si=Z9kzTbCh_rrYSi9K",
+      "title": "Sales Training // Get a Yes Every Time - LIVE Phone Call with Customer // Andy Elliott",
+      "duration": "00:48:50",
+      "markdownFile": "sales_training____get_a_yes_every_time___live_phone_call_with_customer____andy_elliott.md",
+      "createdAt": "2024-12-11T22:07:01.357Z",
+      "thumbnailUrl": "https://i.ytimg.com/vi/esumhu_gBDY/hqdefault.jpg?sqp=-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLCDH_lCb0YqDXTbv1Y0kOqwg8bygw",
+      "views": "61072",
+      "author": "Andy Elliott"
+    },
+    {
       "id": "https://www.youtube.com/watch?v=RVKuj5Nr7DI",
       "url": "https://www.youtube.com/watch?v=RVKuj5Nr7DI",
       "title": "Build an AI Appointment Caller with OpenAI Realtime API & Google Calendar",

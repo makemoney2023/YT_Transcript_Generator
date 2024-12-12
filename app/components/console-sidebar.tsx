@@ -12,23 +12,41 @@ interface ConsoleMessage {
 
 export function ConsoleSidebar() {
   const [messages, setMessages] = useState<ConsoleMessage[]>([]);
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_RETRIES = 3;
 
   useEffect(() => {
-    const eventSource = new EventSource('/api/console-stream');
+    let eventSource: EventSource;
 
-    eventSource.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      setMessages((prev) => [...prev, message]);
+    const connectEventSource = () => {
+      if (retryCount >= MAX_RETRIES) {
+        console.error('Max retries reached for EventSource connection');
+        return;
+      }
+
+      eventSource = new EventSource('/api/console-stream');
+
+      eventSource.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        setMessages((prev) => [...prev, message]);
+      };
+
+      eventSource.onerror = (error) => {
+        console.error('EventSource failed:', error);
+        eventSource.close();
+        setRetryCount(prev => prev + 1);
+        setTimeout(connectEventSource, 1000 * Math.min(retryCount + 1, 5));
+      };
     };
 
-    eventSource.onerror = (error) => {
-      console.error('EventSource failed:', error);
-    };
+    connectEventSource();
 
     return () => {
-      eventSource.close();
+      if (eventSource) {
+        eventSource.close();
+      }
     };
-  }, []);
+  }, [retryCount]);
 
   return (
     <div className="w-80 h-screen bg-gray-900 text-white p-4 fixed right-0 top-0 border-l border-gray-800">
