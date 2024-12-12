@@ -13,12 +13,21 @@ export function TranscriptionProcessor() {
     setError(null)
 
     try {
+      if (!transcript?.trim()) {
+        throw new Error('Transcription is empty')
+      }
+
+      console.log('Sending transcription to process:', transcript)
+      
       const response = await fetch('/api/process-video', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ transcription: transcript }),
+        body: JSON.stringify({ 
+          transcription: transcript,
+          timestamp: Date.now() 
+        }),
       })
 
       if (!response.ok) {
@@ -26,11 +35,18 @@ export function TranscriptionProcessor() {
         throw new Error(errorData.error || 'Failed to process transcription')
       }
 
-      const result = await response.json()
-      // Handle successful response
-      console.log('Transcription processed:', result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
+      const data = await response.json()
+      console.log('Transcription processed:', data)
+
+      if (data.filename) {
+        console.log('Transcription saved to:', data.filename)
+      }
+
+      return data
+    } catch (error) {
+      console.error('Error in handleTranscriptionComplete:', error)
+      setError(error instanceof Error ? error.message : 'An error occurred')
+      throw error
     } finally {
       setIsProcessing(false)
     }
